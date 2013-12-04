@@ -1,0 +1,42 @@
+#!/bin/sh /etc/rc.common
+#
+# Copyright (C) 2013 Gerrit 'Nold' Pannek
+#
+
+START=99
+
+start() {
+	echo -n "Starting SHIPS... "
+	
+	FAILLOG=$(grep "^FAILLOG=" /etc/ships/ships.conf | head -1 | cut -f2 -d"=")
+	LOCKFILE=$(grep "^LOCKFILE=" /etc/ships/ships.conf | head -1 | cut -f2 -d"=")
+	
+	if [ -f $LOCKFILE ] ; then
+		echo
+		echo "Lockfile $LOCKFILE exists. Can't continue."
+		exit 1
+	fi
+	
+	test -d $(dirname $FAILLOG) || mkdir -p $(dirname $FAILLOG)
+	echo -n > $FAILLOG || exit 1
+	
+	/usr/bin/ships.sh &> /dev/null &
+	echo $! > $LOCKFILE
+	
+	echo "done"
+	exit 0
+}
+
+stop() {
+	echo -n "Stopping SHIPS... "
+	LOCKFILE=$(grep "^LOCKFILE=" /etc/ships/ships.conf | head -1 | cut -f2 -d"=")
+	if [ -f $LOCKFILE ] ; then
+		kill -9 $(cat $LOCKFILE)
+		rm -f $LOCKFILE
+		sleep 2
+		#FIXME: We shouldn't do that.. but trap dosn't work well for children :/
+		killall -9 ships.sh
+	fi
+	echo "done"
+	exit 0
+}
