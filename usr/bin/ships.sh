@@ -8,7 +8,7 @@
 ##############################################################################################################
 # Copyright (c) 2013, Gerrit 'Nold' Pannek
 # All rights reserved.
-# See COPYRIGHT-File which should come with this Script.
+# See LICENSE-File which should come with this Script.
 ##############################################################################################################
 #
 # Homepage: http://nold.in
@@ -48,11 +48,13 @@ read_config () {
         for file in $(find /etc/ships/${type}.d/ -name "*.conf" -type f) ; do
                 #Skip disabled Jails
                 if [ "$type" == "jail" ] ; then
-                        egrep -v "^\#" $file | grep -qi "enabled=true" || continue
+                        #Skip if jail is disabled
+                        [ "$(get_config enabled $file)" == "true" ] || continue
                 fi
 
                 #Give TYPE-Number a name
                 eval ${type}_${count}=$(basename $file | cut -f1 -d.)
+
                 #"Reverse" lookup possibility
                 eval ${type}_$(basename $file | cut -f1 -d.)=${count}
 
@@ -64,7 +66,7 @@ read_config () {
                         eval ${type}_${count}_variables=$(eval echo "$"${type}_${count}_variables | cut -f3- -d_)+$(echo $line | cut -f1 -d" ")
                 done
 
-                [ ! -f "/etc/ships/action.d/$(eval echo "$"${type}_${count}_action).conf" ] && echo "ERROR: Action $(eval echo "$"${type}_${count}_action) dosn't exist" && return 1
+                [ ! -f "/etc/ships/action.d/$(eval echo "$"${type}_${count}_action).conf" ] && logger -t SHIPS -p daemon.err "ERROR: Action $(eval echo "$"${type}_${count}_action) dosn't exist" && return 1
 
                 local count=$(($count + 1))
         done
@@ -73,8 +75,8 @@ read_config () {
         #Check if available Actions are OK
         for file in $(find /etc/ships/action.d/ -name "*.conf" -type f) ; do
                 for action in start stop ban unban check; do
-                        if ! egrep -v "^\#" $file | grep -q $action | head -1; then
-                                echo "ERROR: Action $file dosn't support \"$action\""
+                        if [ -z "$(get_config $action $file)" ]; then
+                                logger -t SHIPS -p daemon.err "ERROR: Action $file dosn't support \"$action\""
                                 failed=1
                         fi
                 done
@@ -94,12 +96,11 @@ start_jail() {
 
         local regex=$(get_config failregex /etc/ships/filter.d/${filter}.conf)
 
-        #set -x
         #Read out Action
         for var in start stop ban unban check; do
                 value=$(get_config $var /etc/ships/action.d/${action}.conf)
                 value=$(echo $value | sed "s/<name>/${name}/g" | sed "s/<port>/${port}/g" )
-                eval local action${var}=\"$value\"
+                eval action${var}=\"$value\"
         done
 
         #Should we use logread or just tail a logfile?
@@ -129,6 +130,7 @@ start_jail() {
 
                                         local skip=0
                                         #Should this IP be ignored
+                                        #FIXME: We might want to exclude Subnets and hostnames will also fail
                                         for ip in $(get_config IGNORE_IP /etc/ships/ships.conf | tr "," " ") ; do
                                                 if [ "$source_ip" == "$ip" ] ; then
                                                         local skip=1
@@ -139,20 +141,20 @@ start_jail() {
 
                                         #Got no entry? Add counter
                                         if ! grep -q "${name}:${source_ip}:" $FAILLOG ; then
+                                                [ "$DEBUG" == "1" ] && logger -t SHIPS -p daemon.notice "Adding $source_ip in jail $name"
                                                 echo "${name}:${source_ip}:1:$(date +'%s')" >> $FAILLOG
-                                                echo "Adding counter"
                                         else
                                         #Got entry, Increment counter or Ban client
                                                 local count=$(grep "${name}:${source_ip}:" $FAILLOG | cut -f3 -d:)
                                                 if [ "$count" != "B" ] ; then
                                                         if [ $count -ge $maxretry ] ; then
                                                                 #Ban client
-                                                                echo "Ban: $source_ip"
+                                                                [ "$DEBUG" == "1" ] && logger -t SHIPS -p daemon.notice "Banning $source_ip in jail $name"
                                                                 eval $(echo $actionban | sed "s/<ip>/${source_ip}/g")
                                                                 sed -i "s/${name}:${source_ip}:.*$/${name}:${source_ip}:B:$(date +'%s')/g" $FAILLOG
                                                         else
                                                                 local count=$(( $count + 1 ))
-                                                                echo "New count: $count"
+                                                                [ "$DEBUG" == "1" ] && logger -t SHIPS -p daemon.notice "Updateing counter to $count for $source_ip in jail $name"
                                                                 sed -i "s/${name}:${source_ip}:.*$/${name}:${source_ip}:${count}:$(date +'%s')/g" $FAILLOG
                                                         fi
                                                 fi
@@ -175,6 +177,7 @@ stop_jail() {
         value=$(get_config stop /etc/ships/action.d/${action}.conf)
         value=$(echo $value | sed "s/<name>/${name}/g" | sed "s/<port>/${port}/g" )
         eval actionstop=\"$value\"
+        [ "$DEBUG" == "1" ] && logger -t SHIPS -p daemon.notice "Stopping Jail $name"
 
         kill -9 $pid
         eval $actionstop
@@ -194,13 +197,13 @@ unbanner() {
                                 banned_time=$(echo $line | cut -f4 -d:)
                                 time_left=$(( $(date +'%s') - $banned_time  ))
                                 if [ $time_left -ge $BANTIME ] ; then
-                                        echo "unban client"
                                         jailname=$(echo $line | cut -f1 -d:)
                                         source_ip=$(echo $line | cut -f2 -d:)
                                         jailnr=$(eval echo "$"jail_${jailname})
                                         action=$(eval echo "$"jail_${jailnr}_action)
                                         unban=$(get_config unban /etc/ships/action.d/${action}.conf)
                                         unban=$(echo $unban | sed "s/<name>/${jailname}/g" | sed "s/<ip>/${source_ip}/g")
+                                        [ "$DEBUG" == "1" ] && logger -t SHIPS -p daemon.notice "UNbanning $source_ip in jail $jailname"
                                         eval $unban
                                         sed -i "/${jailname}:${source_ip}:B:.*$/d" $FAILLOG
                                 fi
@@ -208,8 +211,8 @@ unbanner() {
                         elif [ $(( $(echo $line | cut -f4 -d:) + $RESET_AFTER )) -lt $(date +'%s') ] ; then
                                 jailname=$(echo $line | cut -f1 -d:)
                                 source_ip=$(echo $line | cut -f2 -d:)
+                                [ "$DEBUG" == "1" ] && logger -t SHIPS -p daemon.notice "Cleaning entry for $source_ip in jail $jailname"
                                 sed -i "/${jailname}:${source_ip}:.*:$(echo $line | cut -f4 -d:)$/d" $FAILLOG
-                                echo sed -i "/${jailname}:${source_ip}:.*:$(echo $line | cut -f4 -d:)$/d" $FAILLOG
                         fi
                 done
                 sleep 1
@@ -226,9 +229,6 @@ stop_all_jails() {
 
 read_config || exit 1
 
-#test -d $(dirname $FAILLOG) || mkdir -p $(dirname $FAILLOG)
-#echo -n > $FAILLOG || exit 1
-
 local count=0
 while [ ! -z "$(eval echo "$"jail_${count})" ] ; do
         start_jail $count &
@@ -238,8 +238,9 @@ done
 unbanner &
 unbanner_pid=$!
 
-trap "stop_all_jails &> /dev/null; kill -9 $unbanner_pid ; exit 0" SIGINT SIGTERM SIGKILL
+trap "stop_all_jails &> /dev/null; logger -t SHIPS -p daemon.notice \"SHIPS-Daemon is going down...\"; kill -9 $unbanner_pid ; exit 0" SIGINT SIGTERM SIGKILL
 
+logger -t SHIPS -p daemon.notice "SHIPS-Daemon started and running..."
 while true; do
         sleep 1
 done
