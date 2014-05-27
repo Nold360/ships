@@ -8,6 +8,7 @@
 ##############################################################################################################
 # Copyright (c) 2013, Gerrit 'Nold' Pannek
 # All rights reserved.
+# Licensed under GNU GENERAL PUBLIC LICENSE 3 or higher
 # See LICENSE-File which should come with this Script.
 ##############################################################################################################
 #
