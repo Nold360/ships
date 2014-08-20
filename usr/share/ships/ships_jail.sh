@@ -59,7 +59,7 @@ start_jail() {
 
 	#Should we use logread or just tail a logfile?
 	if [ "$logpath" == "LOGREAD" ] ; then
-		local logaction="logread -f"
+		local logaction="logread -fp /var/run/ships_jail_${name}_logread.pid"
 	else
 		local logaction="tail -fn0 $logpath"
 	fi

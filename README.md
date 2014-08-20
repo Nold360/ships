@@ -13,4 +13,4 @@ embedded platforms like OpenWRT so it will be optimised for busybox's ash.
 
 Known Problems
 =====
-* logread doesn't quit after stopping SHIPS. No fix atm.
+* none :)

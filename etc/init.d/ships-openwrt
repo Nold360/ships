@@ -31,12 +31,17 @@ stop() {
 	echo -n "Stopping SHIPS... "
 	LOCKFILE=$(grep "^LOCKFILE=" /etc/ships/ships.conf | head -1 | cut -f2 -d"=")
 	if [ -f $LOCKFILE ] ; then
-		kill -9 $(cat $LOCKFILE)
+		kill $(cat $LOCKFILE) 2>/dev/null
 		rm -f $LOCKFILE
 		sleep 2
-		#FIXME: We shouldn't do that.. but trap dosn't work well for children :/
-		killall -9 ships.sh
+		#just to make sure.. but ships should quit clean
+		killall -9 ships.sh 2>/dev/null
 	fi
+
+	for pidfile in $(ls -1 /var/run/ships_jail_*_logread.pid); do
+		kill -9 $(cat $pidfile) 2> /dev/null && rm $pidfile 2>/dev/null
+	done
 	echo "done"
 	exit 0
 }
+
