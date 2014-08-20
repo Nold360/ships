@@ -1,0 +1,2 @@
+This is for building opkg/ipkg/dpkg packages for SHIPS.
+Just type "make" to build a package

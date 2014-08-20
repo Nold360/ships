@@ -1,0 +1,8 @@
+Package: ships
+Version: 0.2-2
+Depends: libc ash
+Source: https://github.com/Nold360/ships
+Section: security
+Architecture: all
+Installed-Size: 1024
+Description: Shell Intrusion Prevention Script - fail2ban in shellscript.
